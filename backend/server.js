@@ -1,70 +1,80 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import { MongoClient } from 'mongodb';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
+import passport from 'passport';
 
+import connectDB from './config/db.js';
+import configurePassport from './config/passport.js';
+import authRoutes from './routes/authRoutes.js';
+import passwordRoutes from './routes/passwordRoutes.js';
+
+// Load env vars
 dotenv.config();
 
-// App
+// Connect to MongoDB
+await connectDB();
+
+// Initialize Express
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 // Middleware
 app.use(express.json());
-app.use(cors());
+app.use(cookieParser());
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  'http://localhost:5173',
+  'http://localhost:5174'
+];
 
-// MongoDB connection
-const client = new MongoClient(process.env.MONGO_URI);
-await client.connect();
-console.log('MongoDB connected');
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.indexOf(origin) === -1) {
+        const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+        return callback(new Error(msg), false);
+      }
+      return callback(null, true);
+    },
+    credentials: true,
+  })
+);
 
-const db = client.db(process.env.DB_NAME);
-const collection = db.collection('passwords');
+// Passport initialization
+app.use(passport.initialize());
+configurePassport();
 
-// GET all passwords
-app.get('/', async (req, res) => {
-  try {
-    const passwords = await collection.find({}).toArray();
-    res.json(passwords);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+// API Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/passwords', passwordRoutes);
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// POST a password
-app.post('/', async (req, res) => {
-  try {
-    const password = req.body;
-
-    // Ensure id exists (frontend sends it)
-    if (!password.id) return res.status(400).json({ error: "Password must have an id" });
-
-    const result = await collection.insertOne(password);
-    res.json({ success: true, result });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: 'Route not found' });
 });
 
-// DELETE a password
-app.delete('/', async (req, res) => {
-  try {
-    const { id } = req.body;
-
-    if (!id) return res.status(400).json({ error: "id is required to delete" });
-
-    const result = await collection.deleteOne({ id });
-
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ success: false, message: "Password not found" });
-    }
-
-    res.json({ success: true, result });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
+// Start server
 app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
+  console.log(`\n🔐 PassOP Backend running at http://localhost:${port}`);
+  console.log(`   Environment: ${process.env.NODE_ENV || 'development'}\n`);
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\nShutting down gracefully...');
+  process.exit(0);
 });

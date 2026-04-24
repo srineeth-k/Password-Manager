@@ -1,19 +1,26 @@
-import React from 'react';
-import { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { ToastContainer, toast } from 'react-toastify';
-import { v4 as uuidv4 } from 'uuid';
 import 'react-toastify/dist/ReactToastify.css';
+import { passwordsAPI } from '../services/api';
 
 const Manager = () => {
   const passwordRef = useRef();
-  const [form, setform] = useState({ site: "", username: "", password: "" });
+  const [form, setForm] = useState({ site: '', username: '', password: '' });
+  const [editingId, setEditingId] = useState(null);
   const [passwordArray, setPasswordArray] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Fetch passwords from backend
   const getPasswords = async () => {
-    let req = await fetch("http://localhost:3000/");
-    let passwords = await req.json();
-    setPasswordArray(passwords);
+    try {
+      setIsLoading(true);
+      const passwords = await passwordsAPI.getAll();
+      setPasswordArray(passwords);
+    } catch (error) {
+      toast.error(error.message || 'Failed to load passwords.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -22,241 +29,276 @@ const Manager = () => {
 
   // Copy text to clipboard
   const copyText = (text) => {
-    toast('Copied to clipboard!', {
-      position: "top-right",
-      autoClose: 5000,
-      hideProgressBar: false,
-      closeOnClick: true,
-      pauseOnHover: true,
-      draggable: true,
-      progress: undefined,
-      theme: "dark",
-    });
     navigator.clipboard.writeText(text);
+    toast.success('Copied to clipboard!', { theme: 'dark', autoClose: 2000 });
   };
 
-  // Save password
+  // Save or update password
   const savePassword = async () => {
-    if (form.site.length > 3 && form.username.length > 3 && form.password.length > 3) {
+    if (form.site.length < 3 || form.username.length < 3 || form.password.length < 3) {
+      toast.error('All fields must be at least 3 characters.', { theme: 'dark' });
+      return;
+    }
 
-      // Delete existing password if id exists
-      if(form.id) {
-        await fetch("http://localhost:3000/", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: form.id })
+    try {
+      if (editingId) {
+        // UPDATE existing
+        const data = await passwordsAPI.update(editingId, {
+          site: form.site,
+          username: form.username,
+          password: form.password,
         });
+        setPasswordArray(
+          passwordArray.map((pw) => (pw.id === editingId ? data.password : pw))
+        );
+        setEditingId(null);
+        toast.success('Password updated!', { theme: 'dark' });
+      } else {
+        // CREATE new
+        const data = await passwordsAPI.create(form.site, form.username, form.password);
+        setPasswordArray([data.password, ...passwordArray]);
+        toast.success('Password saved!', { theme: 'dark' });
       }
 
-      const newPassword = { ...form, id: uuidv4() };
-      setPasswordArray([...passwordArray, newPassword]);
-
-      await fetch("http://localhost:3000/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newPassword)
-      });
-
-      setform({ site: "", username: "", password: "" });
-      toast('Password saved!', {
-        position: "top-right",
-        autoClose: 5000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        progress: undefined,
-        theme: "dark",
-      });
-
-    } else {
-      toast('Error: Password not saved!');
+      setForm({ site: '', username: '', password: '' });
+    } catch (error) {
+      toast.error(error.message || 'Failed to save password.', { theme: 'dark' });
     }
   };
 
   // Delete password
   const deletePassword = async (id) => {
-    let c = confirm("Do you really want to delete this password?");
-    if (c) {
-      setPasswordArray(passwordArray.filter(item => item.id !== id));
-      await fetch("http://localhost:3000/", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id })
-      });
-      toast('Password Deleted!', {
-        position: "top-right",
-        autoClose: 5000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        draggable: true,
-        progress: undefined,
-        theme: "dark",
-      });
+    if (!confirm('Do you really want to delete this password?')) return;
+
+    try {
+      await passwordsAPI.delete(id);
+      setPasswordArray(passwordArray.filter((item) => item.id !== id));
+      toast.success('Password deleted!', { theme: 'dark' });
+    } catch (error) {
+      toast.error(error.message || 'Failed to delete password.', { theme: 'dark' });
     }
   };
 
   // Edit password
   const editPassword = (id) => {
-    setform({ ...passwordArray.find(i => i.id === id), id: id });
-    setPasswordArray(passwordArray.filter(item => item.id !== id));
+    const pw = passwordArray.find((i) => i.id === id);
+    if (pw) {
+      setForm({ site: pw.site, username: pw.username, password: pw.password });
+      setEditingId(id);
+    }
+  };
+
+  // Cancel edit
+  const cancelEdit = () => {
+    setForm({ site: '', username: '', password: '' });
+    setEditingId(null);
   };
 
   const handleChange = (e) => {
-    setform({ ...form, [e.target.name]: e.target.value });
+    setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  // Toggle password visibility
+  // Toggle password visibility in input
   const togglePassword = () => {
     passwordRef.current.type =
-      passwordRef.current.type === "password" ? "text" : "password";
+      passwordRef.current.type === 'password' ? 'text' : 'password';
   };
 
   return (
     <>
       <ToastContainer />
-      <div className="absolute inset-0 -z-10 h-full w-full bg-green-50 bg-[linear-gradient(to_right,#8080800a_1px,transparent_1px),linear-gradient(to_bottom,#8080800a_1px,transparent_1px)] bg-[size:14px_24px]">
-        <div className="absolute left-0 right-0 top-0 -z-10 m-auto h-[310px] w-[310px] rounded-full bg-green-400 opacity-20 blur-[100px]"></div>
+
+      {/* Background */}
+      <div className="fixed inset-0 -z-10 bg-slate-950">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 w-[600px] h-[300px] rounded-full bg-emerald-500/8 blur-[120px]"></div>
+        <div className="absolute bottom-20 right-0 w-[400px] h-[400px] rounded-full bg-emerald-500/5 blur-[100px]"></div>
       </div>
 
-      <div className="p-3 md:mycontainer min-h-[88.2vh]">
-        <h1 className='text-4xl font-bold text-center'>
-          <span className='text-green-500'> &lt;</span>
-          <span>Pass</span>
-          <span className='text-green-500'>OP/&gt;</span>
-        </h1>
-        <p className='text-green-900 text-lg text-center'>Your own Password Manager</p>
-
-        <div className="flex flex-col p-4 text-black gap-8 items-center">
-          <input
-            value={form.site}
-            onChange={handleChange}
-            placeholder='Enter website URL'
-            className='rounded-full border border-green-500 w-full p-4 py-1'
-            type="text"
-            name="site"
-            id="site"
-          />
-
-          <div className="flex flex-col md:flex-row w-full justify-between gap-8">
-            <input
-              value={form.username}
-              onChange={handleChange}
-              placeholder='Enter Username'
-              className='rounded-full border border-green-500 w-full p-4 py-1'
-              type="text"
-              name="username"
-              id="username"
-            />
-
-            <div className="relative w-full">
-              <input
-                ref={passwordRef}
-                value={form.password}
-                onChange={handleChange}
-                placeholder='Enter Password'
-                className='rounded-full border border-green-500 w-full p-4 py-1'
-                type="password"
-                name="password"
-                id="password"
-              />
-
-              {/* Text replaces eye icon */}
-              <span
-                className='absolute right-3 top-3 text-gray-700 font-medium cursor-pointer select-none'
-                onClick={togglePassword}
-              >
-                Show Password
-              </span>
-            </div>
-          </div>
-
-          <button
-            onClick={savePassword}
-            className='flex justify-center items-center gap-2 bg-green-400 hover:bg-green-300 rounded-full px-8 py-2 w-fit border border-green-900'
-          >
-            Save
-          </button>
+      <div className="p-4 md:max-w-4xl md:mx-auto min-h-[calc(100vh-120px)] pt-8">
+        {/* Header */}
+        <div className="text-center mb-10">
+          <h1 className="text-4xl font-bold">
+            <span className="text-emerald-400">&lt;</span>
+            <span className="text-white">Pass</span>
+            <span className="text-emerald-400">OP/&gt;</span>
+          </h1>
+          <p className="text-slate-400 mt-2">Your encrypted credential vault</p>
         </div>
 
-        {/* Display saved passwords */}
-        <div className="passwords">
-          <h2 className='font-bold text-2xl py-4'>Your Passwords</h2>
+        {/* Form Card */}
+        <div className="bg-slate-900/60 backdrop-blur-xl border border-slate-800 rounded-2xl p-6 mb-8 shadow-xl">
+          <div className="flex flex-col gap-4">
+            <input
+              value={form.site}
+              onChange={handleChange}
+              placeholder="Enter website URL"
+              className="w-full bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+              type="text"
+              name="site"
+              id="site"
+            />
 
-          {passwordArray.length === 0 && <div>No passwords to show</div>}
+            <div className="flex flex-col md:flex-row gap-4">
+              <input
+                value={form.username}
+                onChange={handleChange}
+                placeholder="Enter Username"
+                className="flex-1 bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                type="text"
+                name="username"
+                id="username"
+              />
 
-          {passwordArray.length !== 0 &&
-            <table className="table-auto w-full rounded-md overflow-hidden mb-10">
-              <thead className='bg-green-800 text-white'>
-                <tr>
-                  <th className='py-2'>Site</th>
-                  <th className='py-2'>Username</th>
-                  <th className='py-2'>Password</th>
-                  <th className='py-2'>Actions</th>
-                </tr>
-              </thead>
-              <tbody className='bg-green-100'>
-                {passwordArray.map((item, index) => (
-                  <tr key={index}>
-                    <td className='py-2 border border-white text-center'>
-                      <div className='flex items-center justify-center'>
-                        <a href={item.site} target='_blank'>{item.site}</a>
-                        <span 
-                          className='ml-2 text-blue-600 cursor-pointer hover:underline'
-                          onClick={() => copyText(item.site)}
-                        >
-                          Copy
-                        </span>
-                      </div>
-                    </td>
+              <div className="relative flex-1">
+                <input
+                  ref={passwordRef}
+                  value={form.password}
+                  onChange={handleChange}
+                  placeholder="Enter Password"
+                  className="w-full bg-slate-800/50 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/50 transition-all pr-16"
+                  type="password"
+                  name="password"
+                  id="password"
+                />
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-emerald-400 text-xs font-medium transition-colors cursor-pointer"
+                  onClick={togglePassword}
+                >
+                  SHOW
+                </button>
+              </div>
+            </div>
 
-                    <td className='py-2 border border-white text-center'>
-                      <div className='flex items-center justify-center'>
-                        <span>{item.username}</span>
-                        <span 
-                          className='ml-2 text-blue-600 cursor-pointer hover:underline'
-                          onClick={() => copyText(item.username)}
-                        >
-                          Copy
-                        </span>
-                      </div>
-                    </td>
+            <div className="flex items-center gap-3 justify-center">
+              <button
+                onClick={savePassword}
+                className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold rounded-xl px-8 py-2.5 transition-all duration-200 cursor-pointer"
+              >
+                {editingId ? '✓ Update' : '+ Save'}
+              </button>
+              {editingId && (
+                <button
+                  onClick={cancelEdit}
+                  className="bg-slate-700 hover:bg-slate-600 text-white rounded-xl px-6 py-2.5 transition-all duration-200 cursor-pointer"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
 
-                    <td className='py-2 border border-white text-center'>
-                      <div className='flex items-center justify-center'>
-                        <span>{"*".repeat(item.password.length)}</span>
-                        <span 
-                          className='ml-2 text-blue-600 cursor-pointer hover:underline'
-                          onClick={() => copyText(item.password)}
-                        >
-                          Copy
-                        </span>
-                      </div>
-                    </td>
+        {/* Passwords Table */}
+        <div>
+          <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+            <span className="text-emerald-400">🔐</span> Your Passwords
+            <span className="text-sm text-slate-500 font-normal">
+              ({passwordArray.length} saved)
+            </span>
+          </h2>
 
-                    <td className='justify-center py-2 border border-white text-center flex justify-center gap-2'>
-                      <span 
-                        className='cursor-pointer text-blue-600 hover:underline'
-                        onClick={() => editPassword(item.id)}
-                      >
-                        Edit
-                      </span>
-                      <span 
-                        className='cursor-pointer text-red-600 hover:underline'
-                        onClick={() => deletePassword(item.id)}
-                      >
-                        Delete
-                      </span>
-                    </td>
-
+          {isLoading ? (
+            <div className="flex justify-center py-12">
+              <div className="w-8 h-8 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          ) : passwordArray.length === 0 ? (
+            <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-12 text-center">
+              <p className="text-slate-500 text-lg">No passwords saved yet</p>
+              <p className="text-slate-600 text-sm mt-2">Add your first credential above</p>
+            </div>
+          ) : (
+            <div className="bg-slate-900/60 backdrop-blur-xl border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-slate-800/80 text-slate-300 text-sm uppercase tracking-wider">
+                    <th className="py-3 px-4 text-left font-medium">Site</th>
+                    <th className="py-3 px-4 text-left font-medium">Username</th>
+                    <th className="py-3 px-4 text-left font-medium">Password</th>
+                    <th className="py-3 px-4 text-center font-medium">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>}
+                </thead>
+                <tbody>
+                  {passwordArray.map((item) => (
+                    <tr
+                      key={item.id}
+                      className="border-t border-slate-800/50 hover:bg-slate-800/30 transition-colors"
+                    >
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={item.site}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-emerald-400 hover:text-emerald-300 truncate max-w-[200px] transition-colors"
+                          >
+                            {item.site}
+                          </a>
+                          <button
+                            onClick={() => copyText(item.site)}
+                            className="text-slate-500 hover:text-emerald-400 text-xs transition-colors shrink-0 cursor-pointer"
+                            title="Copy"
+                          >
+                            📋
+                          </button>
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-300">{item.username}</span>
+                          <button
+                            onClick={() => copyText(item.username)}
+                            className="text-slate-500 hover:text-emerald-400 text-xs transition-colors shrink-0 cursor-pointer"
+                            title="Copy"
+                          >
+                            📋
+                          </button>
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-300 font-mono">
+                            {'•'.repeat(Math.min(item.password.length, 12))}
+                          </span>
+                          <button
+                            onClick={() => copyText(item.password)}
+                            className="text-slate-500 hover:text-emerald-400 text-xs transition-colors shrink-0 cursor-pointer"
+                            title="Copy password"
+                          >
+                            📋
+                          </button>
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-4">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            className="text-emerald-400 hover:text-emerald-300 text-sm font-medium transition-colors cursor-pointer"
+                            onClick={() => editPassword(item.id)}
+                          >
+                            Edit
+                          </button>
+                          <span className="text-slate-700">|</span>
+                          <button
+                            className="text-red-400 hover:text-red-300 text-sm font-medium transition-colors cursor-pointer"
+                            onClick={() => deletePassword(item.id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     </>
-  )
+  );
 };
 
 export default Manager;

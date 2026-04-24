@@ -1,7 +1,7 @@
 {
   "name": "passop",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,16 +11,11 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.18",
-    "body-parser": "^2.2.1",
-    "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
-    "express": "^5.2.1",
-    "mongodb": "^7.0.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-router-dom": "^7.6.0",
     "react-toastify": "^11.0.5",
-    "tailwindcss": "^4.1.18",
-    "uuid": "^13.0.0"
+    "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
